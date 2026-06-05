@@ -1,0 +1,70 @@
+package com.example.appleabm.agents;
+
+import com.example.appleabm.ModelParams;
+import com.example.appleabm.util.MathUtil;
+import java.util.*;
+
+public class RetailAgent {
+
+  public double money;
+  public final Map<String,Integer> invByVar = new HashMap<>();
+  public final Map<String,Double> priceByVar = new HashMap<>();
+  public final Map<String,Integer> soldByVar = new HashMap<>();
+  public double coverWeeksTarget = 2.0;
+  public double reorderPointWeeks = 1.0;
+
+  private final ModelParams P;
+
+  public RetailAgent(ModelParams P, List<String> varieties) {
+    this.P = P;
+    this.money = P.initial_funds_retailers;
+    int per = Math.max(1, P.initial_stock_retailers / varieties.size());
+    for (String v : varieties) {
+      invByVar.put(v, per);
+      priceByVar.put(v, 1.85);
+      soldByVar.put(v, 0);
+    }
+  }
+
+  public void updateRetailPrices(WholesaleAgent w) {
+    for (String v : invByVar.keySet()) {
+      double ask = w.askByVar.getOrDefault(v, 1.65);
+      double target = ask * (1 + P.RETAIL_MARKUP);
+      double prev = priceByVar.getOrDefault(v, target);
+      double sm = 0.5 * prev + 0.5 * target;
+      priceByVar.put(v, MathUtil.clamp(sm, P.PRICE_FLOOR, P.PRICE_CEIL));
+    }
+  }
+
+  public int computeOrderQty(String variety, int expectedWeeklyDemand) {
+    int target = Math.max(0, (int) (coverWeeksTarget * Math.max(0, expectedWeeklyDemand)));
+    int current = invByVar.getOrDefault(variety, 0);
+    double cover = current / Math.max(expectedWeeklyDemand, 1e-9);
+    if (cover <= reorderPointWeeks) return Math.max(0, target - current);
+    return 0;
+  }
+
+  public void sellToConsumer(ConsumerAgent c, List<String> priority) {
+    int remaining = c.wantToBuy;
+    for (String v : priority) {
+      if (remaining <= 0) break;
+      double price = priceByVar.getOrDefault(v, 999.0);
+      if (!c.canAffordVariety(v, price)) continue;
+      int inv = invByVar.getOrDefault(v, 0);
+      if (inv <= 0) continue;
+      int qty = Math.min(inv, Math.min(remaining, (int) Math.floor(c.money / Math.max(price, 1e-9))));
+      if (qty <= 0) continue;
+      int bought = c.buyUnits(price, qty);
+      if (bought > 0) {
+        invByVar.put(v, inv - bought);
+        money += price * bought;
+        soldByVar.put(v, soldByVar.getOrDefault(v,0) + bought);
+        remaining = c.wantToBuy;
+      }
+    }
+  }
+
+  public void addInventory(String v, int q){
+    invByVar.put(v, invByVar.getOrDefault(v, 0) + q);
+  }
+}

@@ -1,0 +1,334 @@
+package com.example.appleabm;
+
+import com.example.appleabm.agents.*;
+import com.example.appleabm.util.MathUtil;
+import repast.simphony.context.Context;
+import repast.simphony.context.DefaultContext;
+import repast.simphony.engine.environment.RunEnvironment;
+import repast.simphony.engine.schedule.*;
+import repast.simphony.parameter.Parameters;
+import repast.simphony.random.RandomHelper;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class AppleMarketBuilder extends DefaultContext<Object> implements ContextBuilder<Object> {
+
+  // varieties and purchase priority
+  private static final List<String> VARIETIES = Arrays.asList("HONEYCRISP", "FUJI", "RED DELICIOUS");
+  private static final List<String> PRIORITY = Arrays.asList("HONEYCRISP", "FUJI", "RED DELICIOUS");
+
+  // variety markups (wholesale)
+  private static final Map<String,Double> WHOLESALE_MARKUP = new HashMap<>();
+  static {
+    WHOLESALE_MARKUP.put("HONEYCRISP", 0.15);
+    WHOLESALE_MARKUP.put("FUJI", 0.10);
+    WHOLESALE_MARKUP.put("RED DELICIOUS", 0.08);
+  }
+
+  // taste premiums
+  private static final Map<String,Double> TASTE_MEAN = new HashMap<>();
+  private static final Map<String,Double> TASTE_STD = new HashMap<>();
+  static {
+    TASTE_MEAN.put("HONEYCRISP", 0.50); TASTE_STD.put("HONEYCRISP", 0.10);
+    TASTE_MEAN.put("FUJI", 0.15);       TASTE_STD.put("FUJI", 0.05);
+    TASTE_MEAN.put("RED DELICIOUS", 0.0); TASTE_STD.put("RED DELICIOUS", 0.0);
+  }
+
+  // wtp
+  private static final double WTP_JITTER_SIGMA = 0.20;
+  private static final double WTP_MIN = 0.70;
+  private static final double WTP_MAX = 4.00;
+
+  // state
+  private final List<ProducerAgent> producers = new ArrayList<>();
+  private final List<WholesaleAgent> wholesalers = new ArrayList<>();
+  private final List<RetailAgent> retailers = new ArrayList<>();
+  private final List<ConsumerAgent> consumers = new ArrayList<>();
+  private final DataTracker tracker = new DataTracker();
+
+  // farm price accumulator
+  private double monthSupplyAccum = 0.0;
+  private double monthDemandAccum = 0.0;
+  private int stepInMonth = 0;
+  private int monthIdx = 0;
+
+  // demand/supply anchors
+  private double farmQdMonth, farmQsMonth;
+  private int stepsPerMonth;
+
+  // AR(1)
+  private final Map<String, Double> priceShockLog = new HashMap<>();
+
+  // external data
+  private MLPriceLoader ml;
+  private ModelParams P;
+
+  @Override
+  public Context build(Context<Object> context) {
+    context.setId("AppleMarket");
+
+    Parameters pars = RunEnvironment.getInstance().getParameters();
+    P = new ModelParams();
+    // extract parameter values from Repast UI
+    P.YEARS = (Integer)pars.getValue("YEARS");
+    P.STEPS_PER_YEAR = (Integer)pars.getValue("STEPS_PER_YEAR");
+    P.initial_funds_producers = (Double)pars.getValue("initial_funds_producers");
+    P.initial_funds_wholesalers = (Double)pars.getValue("initial_funds_wholesalers");
+    P.initial_funds_retailers = (Double)pars.getValue("initial_funds_retailers");
+    P.initial_funds_consumers = (Double)pars.getValue("initial_funds_consumers");
+    P.initial_stock_producers = (Integer)pars.getValue("initial_stock_producers");
+    P.initial_stock_wholesalers = (Integer)pars.getValue("initial_stock_wholesalers");
+    P.initial_stock_retailers = (Integer)pars.getValue("initial_stock_retailers");
+    P.EPSILON_DEMAND = (Double)pars.getValue("EPSILON_DEMAND");
+    P.PRICE_FLOOR = (Double)pars.getValue("PRICE_FLOOR");
+    P.PRICE_CEIL = (Double)pars.getValue("PRICE_CEIL");
+    P.RATIO_CLAMP_LOW = (Double)pars.getValue("RATIO_CLAMP_LOW");
+    P.RATIO_CLAMP_HIGH = (Double)pars.getValue("RATIO_CLAMP_HIGH");
+    P.ML_SMOOTHING_MONTHS = (Integer)pars.getValue("ML_SMOOTHING_MONTHS");
+    P.USE_FARM_ANCHORS_FOR_PRICE = (Boolean)pars.getValue("USE_FARM_ANCHORS_FOR_PRICE");
+    P.FARM_ANCHOR_BLEND = (Double)pars.getValue("FARM_ANCHOR_BLEND");
+    P.FARM_DEMAND_LB_PER_CAPITA = (Double)pars.getValue("FARM_DEMAND_LB_PER_CAPITA");
+    P.FARM_SUPPLY_LB_PER_CAPITA = (Double)pars.getValue("FARM_SUPPLY_LB_PER_CAPITA");
+    P.POPULATION_EQUIVALENT = (Integer)pars.getValue("POPULATION_EQUIVALENT");
+    P.PRICE_SEASONAL_AMPL = (Double)pars.getValue("PRICE_SEASONAL_AMPL");
+    P.PRICE_SEASONAL_PHASE = (Double)pars.getValue("PRICE_SEASONAL_PHASE");
+    P.PRICE_AR1_RHO = (Double)pars.getValue("PRICE_AR1_RHO");
+    P.PRICE_AR1_SIGMA = (Double)pars.getValue("PRICE_AR1_SIGMA");
+    P.PRICE_NOISE_CLAMP = (Double)pars.getValue("PRICE_NOISE_CLAMP");
+    P.WHOLESALE_PRICE_ALPHA = (Double)pars.getValue("WHOLESALE_PRICE_ALPHA");
+    P.RETAIL_MARKUP = (Double)pars.getValue("RETAIL_MARKUP");
+    P.ML_MONTHLY_PATH = (String)pars.getValue("ML_MONTHLY_PATH");
+    P.CONSUMER_CSV_PATH = (String)pars.getValue("CONSUMER_CSV_PATH");
+
+    stepsPerMonth = Math.max(1, P.STEPS_PER_YEAR / 12);
+
+    // load ML monthly farm prices
+    ml = new MLPriceLoader(P.ML_MONTHLY_PATH);
+
+    // agents
+    // producers: 1=>RED DELICIOUS, 2=>FUJI, 3=>HONEYCRISP 
+    producers.add(new ProducerAgent(1, "RED DELICIOUS", P, ml));
+    producers.add(new ProducerAgent(2, "FUJI", P, ml));
+    producers.add(new ProducerAgent(3, "HONEYCRISP", P, ml));
+
+    wholesalers.add(new WholesaleAgent(P, VARIETIES));
+    retailers.add(new RetailAgent(P, VARIETIES));
+
+    // load consumers' wtp
+    loadConsumers(P.CONSUMER_CSV_PATH);
+
+    // init wholesale price from producers
+    wholesalers.get(0).initializePricesFromProducers(producers, WHOLESALE_MARKUP);
+
+    // demand/supply anchors
+    int popEq = (P.POPULATION_EQUIVALENT > 0) ? P.POPULATION_EQUIVALENT : consumers.size();
+    farmQdMonth = (popEq * P.FARM_DEMAND_LB_PER_CAPITA) / 12.0;
+    farmQsMonth = (popEq * P.FARM_SUPPLY_LB_PER_CAPITA) / 12.0;
+
+    for (String v : VARIETIES) priceShockLog.put(v, 0.0);
+
+    // add to context
+    producers.forEach(context::add);
+    wholesalers.forEach(context::add);
+    retailers.forEach(context::add);
+    consumers.forEach(context::add);
+
+    // schedule
+    ISchedule schedule = RunEnvironment.getInstance().getCurrentSchedule();
+    int totalSteps = P.YEARS * P.STEPS_PER_YEAR;
+
+    schedule.schedule(ScheduleParameters.createRepeating(1, 1), this, "step");
+
+    RunEnvironment.getInstance().endAt(totalSteps);
+    return context;
+  }
+
+  public void step() {
+    // weekly income for consumers
+    final double CONSUMER_WEEKLY_INCOME = 100.0;
+    // resets consumer's demand 
+    for (ConsumerAgent c : consumers) c.money += CONSUMER_WEEKLY_INCOME;
+    for (ConsumerAgent c : consumers) c.resetStepDemand();
+
+    // production
+    for (ProducerAgent p : producers) p.produce();
+
+    // accumulators by month
+    double stepSupply = producers.stream().mapToInt(p -> p.producedThisStep).sum();
+
+    double stepDemand;
+    if (!retailers.isEmpty()) {
+      RetailAgent r = retailers.get(0);
+      stepDemand = 0.0;
+      for (ConsumerAgent c : consumers) {
+        boolean canBuyAny = false;
+        for (String v : VARIETIES) {
+          double priceV = r.priceByVar.getOrDefault(v, 999.0);
+          if (c.canAffordVariety(v, priceV)) { canBuyAny = true; break; }
+        }
+        stepDemand += canBuyAny ? c.unitsPerStep : 0.0;
+      }
+    } else {
+      stepDemand = consumers.stream().mapToDouble(c -> c.unitsPerStep).sum();
+    }
+
+    monthSupplyAccum += stepSupply;
+    monthDemandAccum += stepDemand;
+    stepInMonth++;
+
+    // update wholesale and retail prices
+    wholesalers.get(0).updateWholesalePrices(producers, WHOLESALE_MARKUP);
+    retailers.get(0).updateRetailPrices(wholesalers.get(0));
+
+    // expected weekly demand by variety
+    Map<String,Integer> expected = expectedWeeklyDemandByVar();
+
+    // retailers placing orders
+    RetailAgent r = retailers.get(0);
+    for (String v : VARIETIES) {
+      int qty = r.computeOrderQty(v, expected.getOrDefault(v, 0));
+      if (qty > 0) wholesalers.get(0).receiveOrder(r, qty, v);
+    }
+
+    // wholesaler obtain and fulfill orders
+    wholesalers.get(0).procure(producers, expected, r.priceByVar, WHOLESALE_MARKUP);
+    wholesalers.get(0).fulfill();
+
+    // retail sales
+    for (ConsumerAgent c : consumers) r.sellToConsumer(c, PRIORITY);
+
+    // tract
+    int iter = tracker.iteration.size() + 1;
+    tracker.iteration.add(iter);
+    tracker.totalItemsBought.add(consumers.stream().mapToInt(c -> c.itemsBoughtCum).sum());
+    tracker.consumerSpending.add(consumers.stream().mapToDouble(c -> c.moneySpentCum).sum());
+    tracker.wholesalerStock.add(wholesalers.stream().mapToInt(w -> w.stockTotal).sum());
+    tracker.retailerStock.add(retailers.stream().mapToInt(x -> x.invByVar.values().stream().mapToInt(i->i).sum()).sum());
+    tracker.remainingItems.add(producers.stream().mapToInt(p -> p.stock).sum());
+
+    for (int i = 0; i < producers.size(); i++) {
+      tracker.ensureProducer(i+1);
+      tracker.producerPrice.get(i+1).add(producers.get(i).askingPrice);
+      tracker.producerUnitsSold.get(i+1).add(producers.get(i).unitsSoldCum);
+      tracker.producerRevenue.get(i+1).add(producers.get(i).revenueCum);
+    }
+
+    // update monthly farm prices
+    if (stepInMonth >= stepsPerMonth) {
+      double obsQs = Math.max(monthSupplyAccum, 1e-6);
+      double obsQd = Math.max(monthDemandAccum, 1e-6);
+      double Qs, Qd;
+      if (P.USE_FARM_ANCHORS_FOR_PRICE) {
+        double alpha = Math.max(0.0, Math.min(1.0, P.FARM_ANCHOR_BLEND));
+        Qs = alpha * farmQsMonth + (1.0 - alpha) * obsQs;
+        Qd = alpha * farmQdMonth + (1.0 - alpha) * obsQd;
+      } else {
+        Qs = obsQs; Qd = obsQd;
+      }
+      double ratio = Qs / Qd;
+      ratio = MathUtil.clamp(ratio, P.RATIO_CLAMP_LOW, P.RATIO_CLAMP_HIGH);
+      double power = 1.0 / Math.max(P.EPSILON_DEMAND, 1e-6);
+
+      int mInYear = monthIdx % 12;
+      double seasonMult = 1.0 + P.PRICE_SEASONAL_AMPL *
+          Math.sin(2.0 * Math.PI * (mInYear / 12.0) + P.PRICE_SEASONAL_PHASE);
+      seasonMult = MathUtil.clamp(seasonMult,
+          1.0 - P.PRICE_NOISE_CLAMP, 1.0 + P.PRICE_NOISE_CLAMP);
+
+      for (ProducerAgent p : producers) {
+        double prev = priceShockLog.getOrDefault(p.variety, 0.0);
+        double innov = RandomHelper.createNormal(0, P.PRICE_AR1_SIGMA).nextDouble();
+        double shockLog = P.PRICE_AR1_RHO * prev + innov;
+        priceShockLog.put(p.variety, shockLog);
+        double shockMult = Math.exp(shockLog);
+        shockMult = MathUtil.clamp(shockMult,
+            1.0 - P.PRICE_NOISE_CLAMP, 1.0 + P.PRICE_NOISE_CLAMP);
+
+        double mult = seasonMult * shockMult;
+        mult = MathUtil.clamp(mult,
+            1.0 - P.PRICE_NOISE_CLAMP, 1.0 + P.PRICE_NOISE_CLAMP);
+
+        double pBase = p.p_ml * Math.pow(ratio, power);
+        p.setAskingFromFarmRule(pBase * mult, P.PRICE_FLOOR, P.PRICE_CEIL);
+      }
+
+      monthIdx++;
+      for (ProducerAgent p : producers) p.setMonthlyML(monthIdx);
+
+      monthSupplyAccum = 0.0;
+      monthDemandAccum = 0.0;
+      stepInMonth = 0;
+    }
+  }
+
+  private Map<String,Integer> expectedWeeklyDemandByVar() {
+    Map<String,Double> raw = new HashMap<>();
+    for (String v : VARIETIES) raw.put(v, 0.0);
+
+    RetailAgent r = retailers.get(0);
+    for (ConsumerAgent c : consumers) {
+      double units = c.unitsPerStep * uniform(0.9, 1.1);
+      String chosen = null;
+      for (String v : PRIORITY) {
+        double p = r.priceByVar.getOrDefault(v, 999.0);
+        if (c.canAffordVariety(v, p)) { chosen = v; break; }
+      }
+      if (chosen != null) raw.put(chosen, raw.get(chosen) + units);
+    }
+    return raw.entrySet().stream().collect(Collectors.toMap(
+        Map.Entry::getKey, e -> (int)Math.floor(e.getValue())
+    ));
+  }
+
+  private static double uniform(double a, double b) {
+    return a + (b - a) * RandomHelper.nextDouble();
+  }
+
+  private void loadConsumers(String path) {
+    // Expected cols (flexible names handled in Python; here keep simple)
+    // willing_to_pay, annual_consumption_lbs, subgroup, unit_weight_lbs, accept_substitute, sub_wtp_multiplier
+    try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+      String header = br.readLine();
+      String line;
+      while ((line = br.readLine()) != null) {
+        String[] s = line.split(",", -1);
+        double wtp  = parseOr(s, 0, 3.0);
+        double ann  = parseOr(s, 1, 17.9);
+        int subg    = (int) parseOr(s, 2, 1.0);
+        double uw   = parseOr(s, 3, 1.0);
+        boolean acc = ((int)parseOr(s, 4, 1.0)) == 1;
+        double mult = parseOr(s, 5, 0.9);
+
+        Map<String,Double> taste = new HashMap<>();
+        for (String v : VARIETIES) {
+          double mu = TASTE_MEAN.getOrDefault(v, 0.0);
+          double sd = TASTE_STD.getOrDefault(v, 0.0);
+          double prem = Math.max(0.0, RandomHelper.createNormal(mu, sd).nextDouble());
+          taste.put(v, prem);
+        }
+        consumers.add(new ConsumerAgent(P, wtp, ann, subg, uw, acc, mult, taste,
+            WTP_JITTER_SIGMA, WTP_MIN, WTP_MAX));
+      }
+    } catch (Exception ex) {
+      // fallback: 200 default consumers
+      for (int i = 0; i < 200; i++) {
+        Map<String,Double> taste = new HashMap<>();
+        for (String v : VARIETIES) {
+          double mu = TASTE_MEAN.getOrDefault(v, 0.0);
+          double sd = TASTE_STD.getOrDefault(v, 0.0);
+          double prem = Math.max(0.0, RandomHelper.createNormal(mu, sd).nextDouble());
+          taste.put(v, prem);
+        }
+        consumers.add(new ConsumerAgent(P, 3.0, 17.9, 1, 1.0, true, 0.9, taste,
+            WTP_JITTER_SIGMA, WTP_MIN, WTP_MAX));
+      }
+    }
+  }
+
+  private static double parseOr(String[] s, int idx, double def) {
+    try { return Double.parseDouble(s[idx]); } catch(Exception e){ return def; }
+  }
+}

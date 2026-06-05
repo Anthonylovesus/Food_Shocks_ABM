@@ -1,0 +1,104 @@
+// PriceModel.java
+import java.io.*;
+import java.time.YearMonth;
+import java.util.*;
+import com.opencsv.*;
+
+public class PriceModel {
+  // Map
+  private final NavigableMap<YearMonth, EnumMap<Variety, Double>> ml = new TreeMap<>();
+  // AR(1) state per variety
+  private final EnumMap<Variety, Double> shockLog = new EnumMap<>(Variety.class);
+  private final Random rng = new Random();
+
+  public PriceModel() {
+    for (Variety v : Variety.values()) shockLog.put(v, 0.0);
+  }
+
+  public void loadCsv(String path, int smaWindow) throws Exception {
+    try (Reader r = new FileReader(path); CSVReader cr = new CSVReader(r)) {
+      String[] header = cr.readNext();
+      if (header == null) return;
+
+      int ymIdx = -1, varIdx = -1, priceIdx = -1;
+      for (int i = 0; i < header.length; i++) {
+        String h = header[i].trim().toLowerCase();
+        if (h.equals("year_month")) ymIdx = i;
+        if (h.equals("variety")) varIdx = i;
+        if (h.equals("price_per_lb")) priceIdx = i;
+      }
+      if (ymIdx < 0 || varIdx < 0 || priceIdx < 0) return;
+
+      List<String[]> rows = cr.readAll();
+      // raw map before smoothing
+      NavigableMap<YearMonth, EnumMap<Variety, Double>> raw = new TreeMap<>();
+
+      for (String[] row : rows) {
+        YearMonth ym = YearMonth.parse(row[ymIdx]);
+        Variety v = Variety.valueOf(row[varIdx].toUpperCase().replace(' ', '_'));
+        double val = Double.parseDouble(row[priceIdx]);
+
+        raw.computeIfAbsent(ym, k -> new EnumMap<>(Variety.class))
+           .put(v, val);
+      }
+
+      if (smaWindow <= 1) {
+        ml.putAll(raw);
+      } else {
+        // time series and smoothing for each variety
+        for (Variety v : Variety.values()) {
+          List<Map.Entry<YearMonth, Double>> ts = new ArrayList<>();
+          for (Map.Entry<YearMonth, EnumMap<Variety, Double>> e : raw.entrySet()) {
+            Double val = e.getValue().get(v);
+            if (val != null) ts.add(Map.entry(e.getKey(), val));
+          }
+          // rolling mean
+          List<Map.Entry<YearMonth, Double>> sm = new ArrayList<>();
+          Deque<Double> win = new ArrayDeque<>();
+          double sum = 0;
+          for (int i = 0; i < ts.size(); i++) {
+            double x = ts.get(i).getValue();
+            win.addLast(x); sum += x;
+            if (win.size() > smaWindow) sum -= win.removeFirst();
+            double avg = sum / win.size();
+            sm.add(Map.entry(ts.get(i).getKey(), avg));
+          }
+          // enter back into ml
+          for (Map.Entry<YearMonth, Double> e : sm) {
+            ml.computeIfAbsent(e.getKey(), k -> new EnumMap<>(Variety.class))
+              .put(v, e.getValue());
+          }
+        }
+      }
+    }
+  }
+
+  public double getPml(int monthIdx, Variety v) {
+    if (ml.isEmpty()) {
+      // fallback
+      switch (v) {
+        case RED_DELICIOUS: return 0.70;
+        case FUJI: return 0.75;
+        default: return 1.10;
+      }
+    }
+    YearMonth key = ml.navigableKeySet().stream().skip(monthIdx % ml.size()).findFirst().orElse(ml.firstKey());
+    Double val = ml.getOrDefault(key, new EnumMap<>(Variety.class)).get(v);
+    if (val != null) return val;
+
+    // apply same-month average if missing
+    EnumMap<Variety, Double> row = ml.get(key);
+    double avg = row.values().stream().mapToDouble(d -> d).average().orElse(0.80);
+    return avg;
+  }
+
+  public double shockMultiplier(Variety v) {
+    double prev = shockLog.get(v);
+    double innov = rng.nextGaussian() * Params.PRICE_AR1_SIGMA;
+    double sLog = Params.PRICE_AR1_RHO * prev + innov;
+    shockLog.put(v, sLog);
+    double mult = Math.exp(sLog);
+    double lo = 1.0 - Params.PRICE_NOISE_CLAMP, hi = 1.0 + Params.PRICE_NOISE_CLAMP;
+    return Math.max(lo, Math.min(hi, mult));
+  }
+}

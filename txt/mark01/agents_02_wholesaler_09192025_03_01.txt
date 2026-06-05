@@ -1,0 +1,112 @@
+// Wholesaler.java
+import java.util.*;
+
+public class Wholesaler {
+  public double money = Params.INITIAL_FUNDS_WHOLESALER;
+  public int stock = Params.INITIAL_STOCK_WHOLESALER;
+  public final EnumMap<Variety, Integer> stockByVar = new EnumMap<>(Variety.class);
+  public final EnumMap<Variety, Double> askByVar = new EnumMap<>(Variety.class);
+  public final Map<Variety, List<Order>> orders = new EnumMap<>(Variety.class);
+  public double targetCoverWeeks = 3.0;
+  public double minMarginFrac = 0.02;
+
+  public Wholesaler() {
+    for (Variety v : Variety.values()) {
+      stockByVar.put(v, Params.INITIAL_STOCK_WHOLESALER / Variety.values().length);
+      askByVar.put(v, 1.65);
+      orders.put(v, new ArrayList<>());
+    }
+  }
+
+  public void initializePricesFromProducers(List<Producer> producers) {
+    for (Variety v : Variety.values()) {
+      double bulk = estimateBulkCost(producers, v);
+      double markup = wholesaleMarkup(v);
+      double target = bulk > 0 ? bulk * (1 + markup) : 1.65;
+      askByVar.put(v, target);
+    }
+  }
+
+  private double wholesaleMarkup(Variety v) {
+    switch (v) {
+      case HONEYCRISP: return Params.WHOLESALE_MARKUP_HONEYCRISP;
+      case FUJI: return Params.WHOLESALE_MARKUP_FUJI;
+      default: return Params.WHOLESALE_MARKUP_RED;
+    }
+  }
+
+  private double estimateBulkCost(List<Producer> producers, Variety v) {
+    List<Double> vals = new ArrayList<>();
+    for (Producer p : producers) if (p.variety == v) vals.add(p.askingPrice * 0.90);
+    if (vals.isEmpty()) {
+      double markup = wholesaleMarkup(v);
+      return askByVar.get(v) / Math.max(1 + markup, 1e-9);
+    }
+    return vals.stream().mapToDouble(x -> x).average().orElse(1.0);
+  }
+
+  public void updateWholesalePrices(List<Producer> producers) {
+    for (Variety v : Variety.values()) {
+      double bulk = estimateBulkCost(producers, v);
+      double target = bulk * (1 + wholesaleMarkup(v));
+      double prev = askByVar.get(v);
+      double next = (1 - Params.WHOLESALE_PRICE_ALPHA) * prev + Params.WHOLESALE_PRICE_ALPHA * target;
+      next = Math.max(Params.PRICE_FLOOR, Math.min(Params.PRICE_CEIL, next));
+      askByVar.put(v, next);
+    }
+  }
+
+  public void receiveOrder(Retailer r, int qty, Variety v) {
+    if (qty > 0) orders.get(v).add(new Order(r, qty));
+  }
+
+  public void procure(List<Producer> producers, Map<Variety, Integer> expectedWeeklyDemand, Map<Variety, Double> retailPrice) {
+    for (Variety v : Variety.values()) {
+      int backlog = orders.get(v).stream().mapToInt(o -> o.qty).sum();
+      int target = (int)(targetCoverWeeks * Math.max(expectedWeeklyDemand.getOrDefault(v, 0), 0));
+      int need = Math.max(0, target + backlog - stockByVar.getOrDefault(v, 0));
+      if (need <= 0) continue;
+
+      double bulk = estimateBulkCost(producers, v);
+      double rp = retailPrice.getOrDefault(v, 1.85);
+      double markup = wholesaleMarkup(v);
+      double marginVsBulk = (rp - bulk) / Math.max(bulk, 1e-9);
+      if (marginVsBulk < (minMarginFrac + markup/2.0)) continue;
+
+      int remaining = need;
+      for (Producer p : producers) {
+        if (p.variety != v || remaining <= 0) continue;
+        int bought = p.sellToWholesaler(this, remaining);
+        remaining -= bought;
+      }
+    }
+  }
+
+  public void fulfillOrders() {
+    for (Variety v : Variety.values()) {
+      List<Order> newList = new ArrayList<>();
+      for (Order o : orders.get(v)) {
+        if (o.qty <= 0) continue;
+        double ask = askByVar.get(v);
+        int ship = Math.min(o.qty, stockByVar.getOrDefault(v, 0));
+        ship = Math.min(ship, (int)Math.floor(o.r.money / Math.max(ask, 1e-9)));
+        if (ship > 0) {
+          stockByVar.put(v, stockByVar.get(v) - ship);
+          stock -= ship;
+          o.r.invByVar.put(v, o.r.invByVar.getOrDefault(v, 0) + ship);
+          o.r.money -= ship * ask;
+          money += ship * ask;
+          o.qty -= ship;
+        }
+        if (o.qty > 0) newList.add(o);
+      }
+      orders.put(v, newList);
+    }
+  }
+
+  public static class Order {
+    public final Retailer r;
+    public int qty;
+    public Order(Retailer r, int qty) { this.r = r; this.qty = qty; }
+  }
+}

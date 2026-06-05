@@ -1,0 +1,66 @@
+// Producer.java
+import repast.simphony.engine.schedule.*;
+import java.util.*;
+
+public class Producer {
+  public final int id;
+  public final Variety variety;
+  public double money = Params.INITIAL_FUNDS_PRODUCER;
+  public int stock = Params.INITIAL_STOCK_PRODUCER;
+
+  public double pML;          
+  public double askingPrice;  
+
+  public double productionCost; 
+  public int producedThisStep = 0;
+  public int unitsSoldCum = 0;
+  public double revenueCum = 0.0;
+
+  private final MarketState state;
+
+  public Producer(int id, Variety variety, double productionCost, MarketState state) {
+    this.id = id;
+    this.variety = variety;
+    this.productionCost = productionCost;
+    this.state = state;
+    this.pML = state.priceModel.getPml(0, variety);
+    this.askingPrice = pML;
+  }
+
+  public void produce() {
+    int rate = (variety == Variety.RED_DELICIOUS ? 50 :
+               (variety == Variety.FUJI ? 30 : 15));
+    stock += rate;
+    money -= productionCost * rate;
+    producedThisStep = rate;
+  }
+
+  public int sellToWholesaler(Wholesaler w, int qty) {
+    if (qty <= 0) return 0;
+    double bulkPrice = askingPrice * 0.90;
+    int maxAfford = (int)Math.floor(w.money / Math.max(bulkPrice, 1e-9));
+    int q = Math.max(0, Math.min(Math.min(qty, stock), maxAfford));
+    q = (q / 10) * 10;
+    if (q <= 0) return 0;
+
+    stock -= q;
+    w.stock += q;
+    w.stockByVar.merge(variety, q, Integer::sum);
+    w.money -= bulkPrice * q;
+    money   += bulkPrice * q;
+    unitsSoldCum += q;
+    revenueCum   += bulkPrice * q;
+    return q;
+  }
+
+  public void updatePriceFromRule(double Qs, double Qd) {
+    double ratio = state.clip(Qs / Qd, Params.RATIO_CLAMP_LOW, Params.RATIO_CLAMP_HIGH);
+    double power = 1.0 / Math.max(Params.EPSILON_DEMAND, Params.EPS_MIN);
+
+    double pBase = pML * Math.pow(ratio, power);
+    double mult = state.seasonalMultiplier() * state.priceModel.shockMultiplier(variety);
+    mult = state.clip(mult, 1.0 - Params.PRICE_NOISE_CLAMP, 1.0 + Params.PRICE_NOISE_CLAMP);
+
+    askingPrice = state.clip(pBase * mult, Params.PRICE_FLOOR, Params.PRICE_CEIL);
+  }
+}

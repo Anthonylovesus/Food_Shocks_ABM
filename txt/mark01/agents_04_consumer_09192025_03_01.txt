@@ -1,0 +1,85 @@
+// Consumer.java
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+
+public class Consumer {
+  public double money = Params.INITIAL_FUNDS_CONSUMER;
+
+  public double willingToPay;
+  public double annualConsumptionLbs;
+  public int subgroup;
+  public double unitWeightLbs;
+  public boolean acceptSubstitute;
+  public double subWtpMultiplier;
+
+  public double unitsPerStep;
+  private double demandBuffer = 0.0;
+  public int wantToBuy = 0;
+
+  public double moneySpentCum = 0.0;
+  public int itemsBoughtCum = 0;
+
+  public final EnumMap<Variety, Double> tastePremium = new EnumMap<>(Variety.class);
+
+  public Consumer(Map<String, String> row) {
+    // parse with defaults
+    double baseWtp = parseDouble(row.get("willing_to_pay"), 3.0);
+    double jitter = Math.exp(ThreadLocalRandom.current().nextGaussian() * Params.WTP_JITTER_SIGMA);
+    this.willingToPay = Math.min(Params.WTP_MAX, Math.max(Params.WTP_MIN, baseWtp * jitter));
+
+    this.annualConsumptionLbs = parseDouble(row.get("annual_consumption_lbs"), 17.9);
+    this.subgroup = (int)parseDouble(row.get("subgroup"), 1);
+    this.unitWeightLbs = Math.max(parseDouble(row.get("unit_weight_lbs"), 1.0), 1e-9);
+    this.acceptSubstitute = parseDouble(row.get("accept_substitute"), 1) > 0.5;
+    this.subWtpMultiplier = parseDouble(row.get("sub_wtp_multiplier"), 0.9);
+
+    this.unitsPerStep = (annualConsumptionLbs / unitWeightLbs) / Params.STEPS_PER_YEAR;
+
+    tastePremium.put(Variety.HONEYCRISP, Math.max(0.0, gauss(0.50, 0.10)));
+    tastePremium.put(Variety.FUJI,       Math.max(0.0, gauss(0.15, 0.05)));
+    tastePremium.put(Variety.RED_DELICIOUS, 0.0);
+  }
+
+  private static double parseDouble(String s, double def) {
+    try { return Double.parseDouble(s); } catch (Exception e) { return def; }
+  }
+
+  private static double gauss(double mu, double sigma) {
+    return mu + ThreadLocalRandom.current().nextGaussian() * sigma;
+  }
+
+  public void addWeeklyIncome() {
+    money += Params.WEEKLY_INCOME;
+  }
+
+  public void resetStepDemand() {
+    demandBuffer += unitsPerStep;
+    int planned = (int)Math.floor(demandBuffer);
+    demandBuffer -= planned;
+    wantToBuy = planned;
+  }
+
+  public double effectiveWtpFor(Variety v) {
+    double prem = tastePremium.getOrDefault(v, 0.0);
+    return Math.max(0.0, willingToPay - prem);
+  }
+
+  public boolean canAffordVariety(Variety v, double price) {
+    return (money >= price) && (price <= effectiveWtpFor(v));
+  }
+
+  public int buyUnits(double price, int qty) {
+    int bought = 0;
+    for (int i = 0; i < qty; i++) {
+      if (wantToBuy <= 0) break;
+      if (money >= price) {
+        money -= price;
+        moneySpentCum += price;
+        wantToBuy -= 1;
+        itemsBoughtCum += 1;
+        bought++;
+      } else break;
+    }
+    return bought;
+  }
+}

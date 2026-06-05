@@ -1,0 +1,66 @@
+// Params.java
+public final class Params {
+  // timeframe
+  public static final int YEARS = 5; //NA
+  public static final int STEPS_PER_YEAR = 52; //NA
+  public static final int STEPS_PER_MONTH = Math.max(1, STEPS_PER_YEAR / 12); //NA
+
+  // budget at time 0 for producers, wholesalers, and retailers, weekly budgets for consumers
+  public static final double INITIAL_FUNDS_PRODUCER   = 50000; //usda/nass
+  public static final double INITIAL_FUNDS_WHOLESALER = 150000; //usda/nass
+  public static final double INITIAL_FUNDS_RETAILER   = 25000; //usda/nass
+  public static final double INITIAL_FUNDS_CONSUMER   = 100; 
+
+  // inventory at time 0
+  public static final int INITIAL_STOCK_PRODUCER   = 500; 
+  public static final int INITIAL_STOCK_WHOLESALER = 240;
+  public static final int INITIAL_STOCK_RETAILER   = 150;
+
+  // production per week
+  // rate = 50 if self.producer_type == "1" else (30 if self.producer_type == "2" else 15);
+  // rate = 50 if self.producer_type == "1" (RED DELICIOUS);
+  // rate = 30 if self.producer_type == "2" (FUJI);
+  // rate = 15 if self.producer_type == "3" (HONEYCRISP);
+
+  // farm price (farm prices are imported from csv)le
+  public static final double EPSILON_DEMAND = 1.8; 
+  public static final double EPS_MIN = 1e-6; //NA
+  public static final double PRICE_FLOOR = 0.10; //NA
+  public static final double PRICE_CEIL  = 10.0; //NA
+  public static final double RATIO_CLAMP_LOW  = 2.0/3.0; //NA
+  public static final double RATIO_CLAMP_HIGH = 1.5; //NA
+  public static final int    ML_SMOOTHING_MONTHS = 3; //NA
+
+  // per-capita demand/supply (lbs/person/year)
+  public static final double FARM_DEMAND_PC = 15.8; //usda/ers
+  public static final double FARM_SUPPLY_PC = 30.16; //usda/ers
+  public static final boolean USE_FARM_ANCHORS_FOR_PRICE = true; //NA
+  public static final double FARM_ANCHOR_BLEND = 0.85; //NA
+
+  // seasonality and AR(1)
+  public static final double PRICE_SEASONAL_AMPL = 0.03; //NA
+  public static final double PRICE_SEASONAL_PHASE = 0.0; //NA
+  public static final double PRICE_AR1_RHO   = 0.60; //NA
+  public static final double PRICE_AR1_SIGMA = 0.015; //NA
+  public static final double PRICE_NOISE_CLAMP = 0.10; //NA
+
+  // wholesale and retail
+  public static final double WHOLESALE_MARKUP_HONEYCRISP = 0.15;
+  public static final double WHOLESALE_MARKUP_FUJI = 0.10;
+  public static final double WHOLESALE_MARKUP_RED = 0.08;
+  public static final double WHOLESALE_PRICE_ALPHA = 0.6;
+  public static final double RETAIL_MARKUP = 0.20;
+
+  // consumer (wtp is imported from csv)
+  public static final double WTP_JITTER_SIGMA = 0.20; //NA
+  public static final double WTP_MIN = 0.70, WTP_MAX = 4.00; //NA
+  public static final double WEEKLY_INCOME = 100.0;
+
+  // paths
+  public static final String ML_MONTHLY_PATH = "data/apple_prices_detroit_red_fuji_honeycrisp_perlb_monthly_rf.csv"; //usda/ams
+  public static final String CONSUMER_CSV_PATH = "data/apple_02212025_02.csv"; //usda/ams
+
+}
+
+// Source of information on costs of production: https://www.canr.msu.edu/resources/michigan-apple-cost-of-production-2025
+// U.S. apple historical statistics: https://www.ers.usda.gov/data-products/fruit-and-tree-nuts-data/fruit-and-tree-nuts-historical-data

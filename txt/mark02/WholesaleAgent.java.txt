@@ -1,0 +1,131 @@
+package com.example.appleabm.agents;
+
+import com.example.appleabm.ModelParams;
+import com.example.appleabm.util.MathUtil;
+
+import java.util.*;
+
+public class WholesaleAgent {
+
+  public double money;
+  public int stockTotal;
+  public final Map<String,Integer> stockByVar = new HashMap<>();
+  public final Map<String,Double> askByVar = new HashMap<>();
+  public final Map<String,List<Order>> orders = new HashMap<>();
+  public double targetCoverWeeks = 3.0;
+  public double minMarginFrac = 0.02;
+
+  private final ModelParams P;
+
+  public static class Order {
+    public final RetailAgent retailer;
+    public int qty;
+    public Order(RetailAgent r, int q){ this.retailer = r; this.qty = q; }
+  }
+
+  public WholesaleAgent(ModelParams P, List<String> varieties) {
+    this.P = P;
+    this.money = P.initial_funds_wholesalers;
+    this.stockTotal = P.initial_stock_wholesalers;
+    for (String v : varieties) {
+      stockByVar.put(v, P.initial_stock_wholesalers / varieties.size());
+      askByVar.put(v, 1.65);
+      orders.put(v, new ArrayList<>());
+    }
+  }
+
+  public void initializePricesFromProducers(List<ProducerAgent> producers, Map<String,Double> markupByVar) {
+    for (String v : stockByVar.keySet()) {
+      double bulk = estimateBulk(producers, v);
+      double markup = markupByVar.getOrDefault(v, 0.10);
+      double target = bulk * (1 + markup);
+      askByVar.put(v, target > 0 ? target : 1.65);
+    }
+  }
+
+  public void updateWholesalePrices(List<ProducerAgent> producers, Map<String,Double> markupByVar) {
+    for (String v : stockByVar.keySet()) {
+      double bulk = estimateBulk(producers, v);
+      double markup = markupByVar.getOrDefault(v, 0.10);
+      double target = bulk * (1 + markup);
+      double prev = askByVar.getOrDefault(v, target);
+      double Sm = (1 - P.WHOLESALE_PRICE_ALPHA) * prev + P.WHOLESALE_PRICE_ALPHA * target;
+      askByVar.put(v, MathUtil.clamp(Sm, P.PRICE_FLOOR, P.PRICE_CEIL));
+    }
+  }
+
+  private double estimateBulk(List<ProducerAgent> producers, String variety) {
+    List<ProducerAgent> ps = new ArrayList<>();
+    for (ProducerAgent p : producers) if (p.variety.equals(variety)) ps.add(p);
+    if (ps.isEmpty()) {
+      double prevAsk = askByVar.getOrDefault(variety, 1.65);
+      double markup = 0.10;
+      return prevAsk / Math.max(1 + markup, 1e-9);
+    }
+    double sum = 0;
+    for (ProducerAgent p : ps) sum += p.askingPrice * 0.90;
+    return sum / ps.size();
+  }
+
+  public void receiveOrder(RetailAgent r, int qty, String variety){
+    if (qty > 0 && stockByVar.containsKey(variety)) {
+      orders.get(variety).add(new Order(r, qty));
+    }
+  }
+
+  public void procure(List<ProducerAgent> producers,
+                      Map<String,Integer> expectedWeeklyDemand,
+                      Map<String,Double> retailPriceByVar,
+                      Map<String,Double> markupByVar) {
+
+    for (String v : stockByVar.keySet()) {
+      int backlog = 0;
+      for (Order o : orders.get(v)) backlog += o.qty;
+
+      int target = (int) Math.max(0, targetCoverWeeks * expectedWeeklyDemand.getOrDefault(v, 0));
+      int need = Math.max(0, target + backlog - stockByVar.getOrDefault(v, 0));
+      if (need <= 0) continue;
+
+      double bulk = estimateBulk(producers, v);
+      double retail = retailPriceByVar.getOrDefault(v, 1.85);
+      double markup = markupByVar.getOrDefault(v, 0.10);
+      double marginVsBulk = (retail - bulk) / Math.max(bulk, 1e-9);
+      if (marginVsBulk < (minMarginFrac + markup/2.0)) continue;
+
+      int remaining = need;
+      for (ProducerAgent p : producers) {
+        if (!p.variety.equals(v)) continue;
+        if (remaining <= 0) break;
+        int bought = p.sellToWholesaler(this, remaining, 10);
+        remaining -= bought;
+      }
+    }
+  }
+
+  public void fulfill() {
+    for (String v : stockByVar.keySet()) {
+      List<Order> next = new ArrayList<>();
+      for (Order o : orders.get(v)) {
+        int qty = o.qty;
+        double ask = askByVar.getOrDefault(v, 1.65);
+        int inv = stockByVar.getOrDefault(v, 0);
+        int ship = Math.min(qty, Math.min(inv, (int) Math.floor(o.retailer.money / Math.max(ask,1e-9))));
+        if (ship > 0) {
+          stockByVar.put(v, inv - ship);
+          stockTotal -= ship;
+          o.retailer.addInventory(v, ship);
+          o.retailer.money -= ship * ask;
+          this.money += ship * ask;
+          qty -= ship;
+        }
+        if (qty > 0) next.add(new Order(o.retailer, qty));
+      }
+      orders.put(v, next);
+    }
+  }
+
+  public void addStock(String v, int q) {
+    stockByVar.put(v, stockByVar.getOrDefault(v, 0) + q);
+    stockTotal += q;
+  }
+}

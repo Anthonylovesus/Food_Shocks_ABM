@@ -1,0 +1,71 @@
+package com.example.appleabm.agents;
+
+import com.example.appleabm.MLPriceLoader;
+import com.example.appleabm.ModelParams;
+import com.example.appleabm.util.MathUtil;
+import repast.simphony.random.RandomHelper;
+
+public class ProducerAgent {
+
+  public final int id;
+  public final String variety; 
+  public double money;
+  public int stock;
+  public double p_ml;          
+  public double askingPrice;   
+  public double productionCost;
+  public int unitsSoldCum = 0;
+  public double revenueCum = 0;
+  public int producedThisStep = 0;
+
+  private final ModelParams P;
+  private final MLPriceLoader ml;
+
+  public ProducerAgent(int id, String variety, ModelParams P, MLPriceLoader ml) {
+    this.id = id;
+    this.variety = variety;
+    this.P = P;
+    this.ml = ml;
+    this.money = P.initial_funds_producers;
+    this.stock = P.initial_stock_producers;
+    this.p_ml = ml.getPriceFor(variety, 0);
+    this.askingPrice = p_ml;
+    // match your Python mapping
+    this.productionCost =
+        variety.equals("RED DELICIOUS") ? 0.4 :
+        variety.equals("FUJI") ? 0.5 : 0.9;
+  }
+
+  public void setMonthlyML(int monthIdx) {
+    this.p_ml = ml.getPriceFor(variety, monthIdx);
+  }
+
+  public void setAskingFromFarmRule(double base, double floor, double ceil) {
+    this.askingPrice = MathUtil.clamp(base, floor, ceil);
+  }
+
+  public void produce() {
+    int rate = variety.equals("RED DELICIOUS") ? 50 : variety.equals("FUJI") ? 30 : 15;
+    stock += rate;
+    money -= productionCost * rate;
+    producedThisStep = rate;
+  }
+
+  public int sellToWholesaler(WholesaleAgent w, int qty, int packMultiple) {
+    if (qty <= 0) return 0;
+    double bulkPrice = askingPrice * 0.90;
+    int maxAfford = (int) Math.floor(w.money / Math.max(bulkPrice, 1e-9));
+    int q = Math.max(0, Math.min(Math.min(qty, stock), maxAfford));
+    if (packMultiple > 1) q = (q / packMultiple) * packMultiple;
+    if (q <= 0) return 0;
+
+    stock -= q;
+    w.addStock(variety, q);
+    w.money -= bulkPrice * q;
+
+    money += bulkPrice * q;
+    unitsSoldCum += q;
+    revenueCum += bulkPrice * q;
+    return q;
+  }
+}

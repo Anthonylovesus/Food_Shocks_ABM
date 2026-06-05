@@ -1,0 +1,99 @@
+package com.example.appleabm;
+
+import repast.simphony.parameter.Parameter;
+
+public class ModelParams {
+
+  // timeframe
+  @Parameter(displayName="Years", usageName="YEARS")
+  public int YEARS = 5;
+
+  @Parameter(displayName="Steps per Year (weekly=52)", usageName="STEPS_PER_YEAR")
+  public int STEPS_PER_YEAR = 52;
+
+  // budget and inventory
+  @Parameter(displayName="Initial Funds: Producers", usageName="initial_funds_producers")
+  public double initial_funds_producers = 50000;
+
+  @Parameter(displayName="Initial Funds: Wholesalers", usageName="initial_funds_wholesalers")
+  public double initial_funds_wholesalers = 150000;
+
+  @Parameter(displayName="Initial Funds: Retailers", usageName="initial_funds_retailers")
+  public double initial_funds_retailers = 25000;
+
+  @Parameter(displayName="Initial Funds: Consumers", usageName="initial_funds_consumers")
+  public double initial_funds_consumers = 100;
+
+  @Parameter(displayName="Initial Stock: Producers", usageName="initial_stock_producers")
+  public int initial_stock_producers = 500;
+
+  @Parameter(displayName="Initial Stock: Wholesalers", usageName="initial_stock_wholesalers")
+  public int initial_stock_wholesalers = 240;
+
+  @Parameter(displayName="Initial Stock: Retailers", usageName="initial_stock_retailers")
+  public int initial_stock_retailers = 150;
+
+  // farm prices
+  @Parameter(displayName="Epsilon Demand", usageName="EPSILON_DEMAND")
+  public double EPSILON_DEMAND = 1.8;
+
+  @Parameter(displayName="Price Floor", usageName="PRICE_FLOOR")
+  public double PRICE_FLOOR = 0.10;
+
+  @Parameter(displayName="Price Ceiling", usageName="PRICE_CEIL")
+  public double PRICE_CEIL = 10.0;
+
+  @Parameter(displayName="Clamp Low (Qs/Qd)", usageName="RATIO_CLAMP_LOW")
+  public double RATIO_CLAMP_LOW = 2.0/3.0;
+
+  @Parameter(displayName="Clamp High (Qs/Qd)", usageName="RATIO_CLAMP_HIGH")
+  public double RATIO_CLAMP_HIGH = 1.5;
+
+  @Parameter(displayName="ML Smoothing Months", usageName="ML_SMOOTHING_MONTHS")
+  public int ML_SMOOTHING_MONTHS = 3;
+
+  @Parameter(displayName="Use Farm Anchors", usageName="USE_FARM_ANCHORS_FOR_PRICE")
+  public boolean USE_FARM_ANCHORS_FOR_PRICE = true;
+
+  @Parameter(displayName="Farm Anchor Blend (alpha)", usageName="FARM_ANCHOR_BLEND")
+  public double FARM_ANCHOR_BLEND = 0.85;
+
+  @Parameter(displayName="Farm Demand (lb/cap/yr)", usageName="FARM_DEMAND_LB_PER_CAPITA")
+  public double FARM_DEMAND_LB_PER_CAPITA = 15.8;
+
+  @Parameter(displayName="Farm Supply (lb/cap/yr)", usageName="FARM_SUPPLY_LB_PER_CAPITA")
+  public double FARM_SUPPLY_LB_PER_CAPITA = 30.16;
+
+  @Parameter(displayName="Population Equivalent (0=auto)", usageName="POPULATION_EQUIVALENT")
+  public int POPULATION_EQUIVALENT = 0;
+
+  // seasonality and AR(1)
+  @Parameter(displayName="Seasonal Amplitude", usageName="PRICE_SEASONAL_AMPL")
+  public double PRICE_SEASONAL_AMPL = 0.03;
+
+  @Parameter(displayName="Seasonal Phase (rad)", usageName="PRICE_SEASONAL_PHASE")
+  public double PRICE_SEASONAL_PHASE = 0.0;
+
+  @Parameter(displayName="AR(1) Rho", usageName="PRICE_AR1_RHO")
+  public double PRICE_AR1_RHO = 0.60;
+
+  @Parameter(displayName="AR(1) Sigma", usageName="PRICE_AR1_SIGMA")
+  public double PRICE_AR1_SIGMA = 0.015;
+
+  @Parameter(displayName="Noise Clamp (±)", usageName="PRICE_NOISE_CLAMP")
+  public double PRICE_NOISE_CLAMP = 0.10;
+
+  // wholesale and retail
+  @Parameter(displayName="Wholesale Price Alpha", usageName="WHOLESALE_PRICE_ALPHA")
+  public double WHOLESALE_PRICE_ALPHA = 0.6;
+
+  @Parameter(displayName="Retail Markup", usageName="RETAIL_MARKUP")
+  public double RETAIL_MARKUP = 0.20;
+
+  // paths
+  @Parameter(displayName="ML Price CSV path", usageName="ML_MONTHLY_PATH")
+  public String ML_MONTHLY_PATH = "data/apple_prices_detroit_red_fuji_honeycrisp_perlb_monthly_rf.csv";
+
+  @Parameter(displayName="Consumers CSV path", usageName="CONSUMER_CSV_PATH")
+  public String CONSUMER_CSV_PATH = "data/consumers.csv";
+}

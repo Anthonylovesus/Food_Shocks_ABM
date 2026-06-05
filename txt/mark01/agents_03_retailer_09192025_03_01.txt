@@ -1,0 +1,61 @@
+// Retailer.java
+import java.util.*;
+
+public class Retailer {
+  public double money = Params.INITIAL_FUNDS_RETAILER;
+  public final EnumMap<Variety, Integer> invByVar = new EnumMap<>(Variety.class);
+  public final EnumMap<Variety, Double> priceByVar = new EnumMap<>(Variety.class);
+  public double coverWeeksTarget = 2.0;
+  public double reorderPointWeeks = 1.0;
+
+  public Retailer() {
+    for (Variety v : Variety.values()) {
+      invByVar.put(v, Params.INITIAL_STOCK_RETAILER / Variety.values().length);
+      priceByVar.put(v, 1.85);
+    }
+  }
+
+  public void updateRetailPrices(Wholesaler w) {
+    for (Variety v : Variety.values()) {
+      double ask = w.askByVar.get(v);
+      double target = ask * (1 + Params.RETAIL_MARKUP);
+      double prev = priceByVar.get(v);
+      double next = 0.5 * prev + 0.5 * target;
+      next = Math.max(Params.PRICE_FLOOR, Math.min(Params.PRICE_CEIL, next));
+      priceByVar.put(v, next);
+    }
+  }
+
+  public int computeOrderQty(Variety v, int expectedWeeklyDemand) {
+    int target = (int)(coverWeeksTarget * Math.max(expectedWeeklyDemand, 0));
+    int current = invByVar.getOrDefault(v, 0);
+    double coverWeeks = current / Math.max(expectedWeeklyDemand, 1e-9);
+    if (coverWeeks <= reorderPointWeeks) return Math.max(0, target - current);
+    return 0;
+  }
+
+  public Map<Variety, Double> getRetailPriceMap() {
+    Map<Variety, Double> m = new EnumMap<>(Variety.class);
+    for (Variety v : Variety.values()) m.put(v, priceByVar.get(v));
+    return m;
+  }
+
+  public void sellToConsumer(Consumer c) {
+    int remaining = c.wantToBuy;
+    for (Variety v : new Variety[]{Variety.HONEYCRISP, Variety.FUJI, Variety.RED_DELICIOUS}) {
+      if (remaining <= 0) break;
+      double price = priceByVar.get(v);
+      if (!c.canAffordVariety(v, price)) continue;
+      int inv = invByVar.getOrDefault(v, 0);
+      if (inv <= 0) continue;
+      int qty = Math.min(inv, Math.min(remaining, (int)Math.floor(c.money / Math.max(price, 1e-9))));
+      if (qty <= 0) continue;
+      int bought = c.buyUnits(price, qty);
+      if (bought > 0) {
+        invByVar.put(v, inv - bought);
+        money += price * bought;
+        remaining = c.wantToBuy;
+      }
+    }
+  }
+}

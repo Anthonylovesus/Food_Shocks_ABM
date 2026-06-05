@@ -1,0 +1,23 @@
+package com.example.appleabm;
+
+import java.util.*;
+
+public class DataTracker {
+  public final List<Integer> iteration = new ArrayList<>();
+  public final List<Integer> totalItemsBought = new ArrayList<>();
+  public final List<Double> consumerSpending = new ArrayList<>();
+  public final List<Integer> wholesalerStock = new ArrayList<>();
+  public final List<Integer> retailerStock = new ArrayList<>();
+  public final List<Integer> remainingItems = new ArrayList<>();
+
+  // Per-producer series
+  public final Map<Integer, List<Double>> producerPrice = new HashMap<>();
+  public final Map<Integer, List<Integer>> producerUnitsSold = new HashMap<>();
+  public final Map<Integer, List<Double>> producerRevenue = new HashMap<>();
+
+  public void ensureProducer(int idx) {
+    producerPrice.computeIfAbsent(idx, k -> new ArrayList<>());
+    producerUnitsSold.computeIfAbsent(idx, k -> new ArrayList<>());
+    producerRevenue.computeIfAbsent(idx, k -> new ArrayList<>());
+  }
+}

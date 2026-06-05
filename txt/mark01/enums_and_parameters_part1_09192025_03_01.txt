@@ -1,0 +1,4 @@
+// Variety.java
+public enum Variety {
+  HONEYCRISP, FUJI, RED_DELICIOUS;
+}

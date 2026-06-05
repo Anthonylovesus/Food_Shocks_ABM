@@ -1,0 +1,75 @@
+package com.example.appleabm.agents;
+
+import com.example.appleabm.ModelParams;
+import repast.simphony.random.RandomHelper;
+
+import java.util.Map;
+
+public class ConsumerAgent {
+
+  public double money;
+  public double willingToPay;        // baseline
+  public double annualConsumptionLbs;
+  public int subgroup;
+  public double unitWeightLbs;
+  public boolean acceptSubstitute;
+  public double subWtpMultiplier;
+
+  public double unitsPerStep;
+  private double demandBuffer = 0.0;
+  public int wantToBuy = 0;
+  public double moneySpentCum = 0.0;
+  public int itemsBoughtCum = 0;
+
+  public final Map<String,Double> tastePremium; // by variety
+
+  public ConsumerAgent(ModelParams P,
+                       double wtp, double annualLbs, int subgroup,
+                       double unitW, boolean acceptSub, double subMult,
+                       Map<String,Double> tastePremium,
+                       double wtpJitterSigma, double wtpMin, double wtpMax) {
+
+    this.money = P.initial_funds_consumers;
+    double jitter = Math.exp(RandomHelper.createNormal(0, wtpJitterSigma).nextDouble());
+    this.willingToPay = Math.min(wtpMax, Math.max(wtpMin, wtp * jitter));
+    this.annualConsumptionLbs = annualLbs;
+    this.subgroup = subgroup;
+    this.unitWeightLbs = Math.max(unitW, 1e-9);
+    this.acceptSubstitute = acceptSub;
+    this.subWtpMultiplier = subMult;
+    this.tastePremium = tastePremium;
+
+    double unitsPerYear = annualLbs / this.unitWeightLbs;
+    this.unitsPerStep = unitsPerYear / P.STEPS_PER_YEAR;
+  }
+
+  public void resetStepDemand() {
+    demandBuffer += unitsPerStep;
+    int planned = (int) Math.floor(demandBuffer);
+    demandBuffer -= planned;
+    wantToBuy = planned;
+  }
+
+  public double effectiveWTP(String variety) {
+    return Math.max(0.0, willingToPay - tastePremium.getOrDefault(variety, 0.0));
+  }
+
+  public boolean canAffordVariety(String variety, double price) {
+    return (money >= price) && (price <= effectiveWTP(variety));
+  }
+
+  public int buyUnits(double price, int qty) {
+    int bought = 0;
+    for (int i = 0; i < qty; i++) {
+      if (wantToBuy <= 0) break;
+      if (money >= price) {
+        money -= price;
+        moneySpentCum += price;
+        wantToBuy -= 1;
+        itemsBoughtCum += 1;
+        bought++;
+      } else break;
+    }
+    return bought;
+  }
+}

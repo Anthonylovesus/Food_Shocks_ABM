@@ -1,0 +1,34 @@
+// MarketState.java
+import java.util.*;
+import java.time.*;
+
+public class MarketState {
+  public final PriceModel priceModel = new PriceModel();
+  public int monthIdx = 0;
+  public int stepsInMonth = 0;
+
+  // For demand/supply anchors
+  public int populationEquivalent;
+  public double farmQdMonth; 
+  public double farmQsMonth; 
+
+  // Accumulators this month (observed)
+  public double monthSupplyAccum = 0.0;
+  public double monthDemandAccum = 0.0;
+
+  // Data tracker
+  public final List<Double> consumerSpendingCum = new ArrayList<>();
+  public final List<Integer> itemsBoughtCum = new ArrayList<>();
+
+  public double clip(double x, double lo, double hi) {
+    return Math.max(lo, Math.min(hi, x));
+  }
+
+  public double seasonalMultiplier() {
+    int mInYear = monthIdx % 12;
+    double season = 1.0 + Params.PRICE_SEASONAL_AMPL 
+      * Math.sin(2.0 * Math.PI * (mInYear / 12.0) + Params.PRICE_SEASONAL_PHASE);
+    double lo = 1.0 - Params.PRICE_NOISE_CLAMP, hi = 1.0 + Params.PRICE_NOISE_CLAMP;
+    return clip(season, lo, hi);
+  }
+}
