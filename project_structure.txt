@@ -1,0 +1,19 @@
+abm_apple_09192025_03/
+├─ pom.xml
+├─ src/main/java/
+│  └─ com/example/appleabm/
+│     ├─ AppleMarketBuilder.java
+│     ├─ DataTracker.java
+│     ├─ Main.java
+│     ├─ MathUtil.java
+│     ├─ MLPriceLoader.java
+│     ├─ ModelParams.java
+│     ├─ agents/
+│     │  ├─ ConsumerAgent.java
+│     │  ├─ ProducerAgent.java
+│     │  ├─ RetailAgent.java
+│     │  └─ WholesaleAgent.java
+└─ data/
+   ├─ apple_prices_detroit_red_fuji_honeycrisp_perlb_monthly_rf.csv
+   └─ consumers.csv
+└─ output/
