@@ -1,0 +1,275 @@
+Fresh Apple Supply Chain ABM Project
+10-Minute Presentation Script
+
+Slide 1 - Project Title
+Fresh Apple Supply Chain Agent-Based Model
+From survey acreage, machine-learning price forecasts, and calibrated market behavior to producer-level simulation outputs
+
+Speaker notes:
+This presentation summarizes the fresh apple supply chain agent-based model we built and updated. The model is focused on fresh apples, with farmer-producers, a wholesaler, a retailer, and consumer demand. Our main goal was to make the model more data-driven by connecting producer acreage, production volume, predicted farm prices, cost parameters, and producer-level output reporting.
+
+
+Slide 2 - Original Model Context
+The starting point was a Repast Symphony Java model for the apple supply chain.
+
+The original fresh apple model included:
+- Producer agents
+- A wholesale agent
+- A retail agent
+- Consumer agents
+- Farm price dynamics
+- CSV output reports
+
+Speaker notes:
+The model already had a working structure in Java, using Repast Symphony and Java 8. It could run headlessly through Main.java and produce CSV outputs. However, the original setup used a small number of producer agents and multiple named apple varieties. We shifted the model toward a more realistic fresh apple market representation using survey-based producers and a single fresh apple commodity.
+
+
+Slide 3 - Confirming the Model Runs
+Before changing the model, we verified the project could run locally.
+
+Run environment:
+- Java SE 1.8
+- Repast Symphony 2.11.0
+- Fresh apple entry point: com.example.abm.apple.Main
+
+Result:
+- The model compiled successfully.
+- The fresh apple simulation ran successfully.
+- Output CSVs were generated in the output folder.
+
+Speaker notes:
+The first step was technical validation. We located Main.java in the fresh apple package and tested the run using the Java 8 JDK and the Repast classpath. This confirmed that the codebase was runnable before we introduced structural changes.
+
+
+Slide 4 - Other Commodity Models Found
+The project contains multiple commodity folders.
+
+Commodity folders found:
+- apple
+- beef
+- dairy
+- potatoes
+- tomatoes
+- wheat
+
+Apple also includes:
+- fresh apple model
+- processed apple model
+
+Speaker notes:
+The codebase is not only an apple model. It has several commodity-specific ABMs. For this task, we intentionally modified only the fresh apple model under the apple folder. We did not modify the processed apple model inside apple/processed.
+
+
+Slide 5 - Producer Survey Integration
+We incorporated producer acreage from the survey file:
+data/apple_survey_6.13.xlsx
+
+Survey structure used:
+- Column 1: Farmer ID
+- Column 4: Acres
+
+Generated file:
+data/apple_survey_6.13_producers.csv
+
+Result:
+- 38 producer agents
+- 2,155.25 total acres
+- Fresh apple variety assigned to all producers
+
+Speaker notes:
+The survey provided the farm-level structure of the production side. We used each farmer ID as one producer agent. Each producer was assigned the same commodity, Fresh Apples. The acreage value became the basis for annual production capacity.
+
+
+Slide 6 - Acreage to Annual Production
+We converted acres into annual production using USDA NASS apple yield data.
+
+Calibration:
+- Michigan 2025 apple yield: 28,800 lb per acre
+- Annual production = acres * 28,800
+
+Result:
+- Total modeled annual production: 62,071,200 lb
+- 38 producers with different production capacities
+
+Speaker notes:
+Rather than giving all producers the same output, each producer now produces according to their acreage. A 12-acre farmer produces much less than a 400-acre farmer. This creates more realistic heterogeneity in production and sales behavior.
+
+
+Slide 7 - Price Forecast Integration
+We used the model prediction file:
+data/model_predictions_2021_2025.csv
+
+Processing step:
+- Filtered model = GradientBoosting
+- Averaged prediction across all apple varieties for each date
+
+Generated file:
+data/model_predictions_2021_2025_gradient_boosting_daily_mean.csv
+
+This daily mean price became the baseline farmer-to-wholesaler price path.
+
+Speaker notes:
+The original file had predictions for multiple varieties and multiple models. We selected Gradient Boosting, then calculated one daily mean price across all varieties. This created a single fresh apple price series that matches the model's new single-variety structure.
+
+
+Slide 8 - Fresh Apple Single-Commodity Model
+The fresh model was simplified from multiple varieties to one variety:
+FRESH APPLES
+
+Updated structure:
+- 38 producer agents
+- 1 wholesale agent
+- 1 retail agent
+- 1,000 consumer agents
+
+Consumer scaling:
+- Each consumer agent represents about 3,651 people.
+- Demand is based on about 17 lb fresh apple consumption per person per year.
+
+Speaker notes:
+The model now represents fresh apples as one commodity rather than several variety-specific products. This makes the producer survey, predicted price path, and consumer demand all operate on the same unit: pounds of fresh apples.
+
+
+Slide 9 - Farm Price Anchor Logic
+We updated the farm price logic so predicted prices can respond to supply and demand pressure.
+
+Current price formula:
+farmer price = Gradient Boosting predicted price * farm anchor multiplier
+
+Anchor parameters:
+- USE_FARM_ANCHORS_FOR_PRICE = true
+- FARM_ANCHOR_BLEND = 0.90
+- FARM_DEMAND_LB_PER_CAPITA = 17.0
+- FARM_SUPPLY_LB_PER_CAPITA = 21.26
+
+Interpretation:
+- The machine-learning price is the baseline.
+- Demand and supply anchors adjust the price upward or downward.
+
+Speaker notes:
+Previously, the daily predicted price was assigned directly. We changed this so the predicted price remains the baseline, but market pressure can adjust it. If effective demand is high relative to supply, price increases. If supply is high relative to demand, price decreases.
+
+
+Slide 10 - Production Cost Calibration
+We also calibrated production costs in dollars per pound.
+
+Parameters:
+- TOTAL_PRODUCTION_COST_PER_LB = 0.7957
+- FERTILIZER_COST_SHARE = 0.0051
+- FUEL_COST_SHARE = 0.0058
+- OTHER_COST_SHARE = 0.9891
+
+Cost equation:
+production cost per lb =
+fertilizer component + fuel component + other component
+
+Speaker notes:
+The production cost structure was calibrated from an apple enterprise budget. The model now has an explicit total cost per pound and separates that cost into fertilizer, fuel, and other production costs. This keeps the cost logic transparent and easy to adjust in future scenarios.
+
+
+Slide 11 - Producer Output Reporting
+Each producer now reports both daily and cumulative outcomes.
+
+Producer report columns:
+- iteration
+- price
+- units_sold_day
+- revenue_day
+- units_sold_cum
+- revenue_cum
+
+Generated files:
+- output/apples_producer_1.csv
+- ...
+- output/apples_producer_38.csv
+
+Speaker notes:
+Originally, the producer reports only tracked cumulative units sold and cumulative revenue. We added daily units sold and daily revenue so the model can support time-series analysis, daily comparisons, and visualization.
+
+
+Slide 12 - Combined Producer Dataset
+We created a long-format combined CSV:
+output/apple_producers_daily_long.csv
+
+Columns include:
+- producer_id
+- iteration
+- price
+- units_sold_day
+- revenue_day
+- cumulative fields
+- acres
+- annual production
+- variety
+
+Dataset size:
+- 38 producers
+- 49,438 rows
+- 1,301 iterations
+
+Speaker notes:
+The long-format dataset is useful for plotting, filtering, and statistical analysis. It combines the 38 separate producer reports into one clean table.
+
+
+Slide 13 - Interactive Dashboard
+We created an interactive Plotly dashboard:
+output/apple_producers_interactive_dashboard.html
+
+Dashboard charts:
+- Daily units sold by producer
+- Daily revenue by producer
+
+Features:
+- 38 producer lines
+- Total daily line
+- Legend toggles
+- Top 10 plus total button
+- Hover values for each producer
+
+Speaker notes:
+Because 38 producers are too many for a static chart, the dashboard is interactive. Users can hide or isolate producers, view the top 10 producers, and compare total daily activity with individual producer behavior.
+
+
+Slide 14 - Source PDFs Saved
+Supporting sources were saved in:
+pdf/
+
+Examples:
+- USDA NASS Noncitrus Fruits and Nuts 2025 Summary
+- USDA ERS Fruit and Tree Nuts Outlook March 2026
+- Michigan Apple Industry fact sheet
+- Washington State University apple enterprise budget source
+
+Speaker notes:
+The model calibration is backed by online sources. We saved related source PDFs in the project folder so the assumptions can be audited later.
+
+
+Slide 15 - What the Updated Model Can Do
+The updated model can now:
+- Represent 38 real survey-based producer agents
+- Convert acreage into production capacity
+- Use daily machine-learning price forecasts
+- Adjust price using supply and demand anchors
+- Track daily and cumulative sales outcomes
+- Visualize producer performance interactively
+
+Speaker notes:
+The project moved from a small prototype-style supply chain model toward a more data-grounded simulation. The model now connects survey data, external yield calibration, predicted prices, consumer demand, production costs, and visualization outputs.
+
+
+Slide 16 - Next Steps
+Potential next improvements:
+- Add producer-level cost heterogeneity
+- Add geographic distance or county-level market access
+- Add seasonal harvest and storage behavior
+- Add multiple wholesalers or retailers
+- Add scenario experiments for input cost shocks
+- Compare Gradient Boosting against other forecasting models
+- Extend the same workflow to processed apples later
+
+Speaker notes:
+The current model is a strong fresh apple baseline. The next logical step is scenario analysis. For example, we can test fertilizer shocks, fuel shocks, different demand levels, different yield assumptions, or different price forecast models. We can also later apply a similar workflow to the processed apple model, but we intentionally left that untouched for now.
+
+
+Closing Statement
+In summary, we transformed the fresh apple ABM into a survey-driven, price-forecast-informed, single-commodity supply chain simulation. It now includes 38 producer agents, daily price and sales dynamics, calibrated production costs, demand and supply price anchors, and interactive producer-level visualization. The model is now better prepared for policy experiments, supply chain analysis, and scenario testing.
