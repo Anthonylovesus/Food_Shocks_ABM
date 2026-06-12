@@ -474,7 +474,3 @@ The fresh apple model currently represents:
 - Normalized translog production function preserving survey production at baseline
 - Producer-level daily and cumulative output reports
 - Interactive producer sales and revenue dashboard
-
-5. If large files are rejected by GitHub, remove them from the commit or use Git Large File Storage.
-
-GitHub has a file size warning around large files and a hard limit for very large files. If you decide to commit large PDFs, model outputs, or raw prediction files, consider using Git LFS.
